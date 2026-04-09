@@ -43,7 +43,7 @@
 | # | 模块 | 文档 | 源码位置 | 状态 |
 |---|------|------|---------|------|
 | 1 | 公共类型与 Trait | 01-common-types.md | `process/utils/`, `common/types/`, `common/utils/`, `common/platform/` | ⬜ 待提炼（所有模块完成后） |
-| 2 | 数据模型与存储 | 02-database.md | `process/services/database/` | ⬜ 未开始 |
+| 2 | 数据模型与存储 | 02-database.md | `process/services/database/` | ✅ 已完成 |
 | 3 | 认证与用户管理 | 03-auth.md | `process/webserver/auth/`, `process/bridge/authBridge.ts` | ⬜ 未开始 |
 | 4 | 系统设置 | 04-system-settings.md | `process/bridge/systemSettingsBridge.ts`, `process/bridge/modelBridge.ts`, `process/services/i18n/`, `common/config/` | ⬜ 未开始 |
 | 5 | 会话与消息管理 | 05-conversation.md | `process/bridge/conversationBridge.ts`, `process/bridge/acpConversationBridge.ts`, `process/bridge/geminiConversationBridge.ts`, `process/task/`, `common/chat/` | ⬜ 未开始 |
