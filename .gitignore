@@ -25,6 +25,9 @@ debug/
 .DS_Store
 Thumbs.db
 
+# Temporary
+tmp/
+
 # Profiling & debugging
 *.pdb
 perf.data
