@@ -51,7 +51,7 @@
 | 6 | AI 后端集成 | 06-ai-agent.md | `process/agent/`, `process/task/*AgentManager.ts`, `process/worker/`, `process/bridge/bedrockBridge.ts`, `process/bridge/geminiBridge.ts`, `process/bridge/remoteAgentBridge.ts`, `common/api/` | ✅ 已完成 |
 | 7 | 实时通信（WebSocket） | 07-realtime.md | `process/webserver/websocket/` | ✅ 已完成 |
 | 8 | 文件与工作区 | 08-file-workspace.md | `process/bridge/fsBridge.ts`, `process/bridge/documentBridge.ts`, `process/bridge/fileWatchBridge.ts`, `process/bridge/workspaceSnapshotBridge.ts` | ✅ 已完成 |
-| 9 | 通道集成 | 09-channel.md | `process/channels/`, `process/bridge/channelBridge.ts`, `process/bridge/weixinLoginBridge.ts`, `process/webserver/routes/weixinLoginRoutes.ts` | ⬜ 未开始 |
+| 9 | 通道集成 | 09-channel.md | `process/channels/`, `process/bridge/channelBridge.ts`, `process/bridge/weixinLoginBridge.ts`, `process/webserver/routes/weixinLoginRoutes.ts` | ✅ 已完成 |
 | 10 | 团队模式 | 10-team.md | `process/team/` | ⬜ 未开始 |
 | 11 | 定时任务 | 11-cron.md | `process/services/cron/`, `process/bridge/cronBridge.ts` | ⬜ 未开始 |
 | 12 | MCP 协议 | 12-mcp.md | `process/services/mcpServices/`, `process/bridge/mcpBridge.ts` | ⬜ 未开始 |
