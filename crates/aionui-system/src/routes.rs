@@ -1,46 +1,64 @@
 use axum::extract::rejection::JsonRejection;
-use axum::extract::{Json, Query, State};
-use axum::routing::get;
+use axum::extract::{Json, Path, Query, State};
+use axum::http::StatusCode;
+use axum::routing::{delete, get};
 use axum::Router;
 
 use aionui_api_types::{
-    ApiResponse, ClientPreferencesResponse, SystemSettingsResponse, UpdateClientPreferencesRequest,
+    ApiResponse, ClientPreferencesResponse, CreateProviderRequest, ProviderResponse,
+    SystemSettingsResponse, UpdateClientPreferencesRequest, UpdateProviderRequest,
     UpdateSettingsRequest,
 };
 use aionui_common::AppError;
 
 use crate::client_pref::ClientPrefService;
+use crate::provider::ProviderService;
 use crate::settings::SettingsService;
 
-/// Shared state for system settings route handlers.
+/// Shared state for system route handlers.
 #[derive(Clone)]
 pub struct SystemRouterState {
     pub settings_service: SettingsService,
     pub client_pref_service: ClientPrefService,
+    pub provider_service: ProviderService,
 }
 
-/// Build the system settings router.
+/// Build the system router (settings + client prefs + providers).
 ///
 /// All routes require authentication (applied by the caller).
 ///
 /// Endpoints:
-/// - `GET  /api/settings`        — get all backend settings
-/// - `PATCH /api/settings`       — partial update backend settings
-/// - `GET  /api/settings/client`  — get client preferences
-/// - `PUT  /api/settings/client`  — batch update client preferences
-pub fn settings_routes(state: SystemRouterState) -> Router {
+/// - `GET  /api/settings`            — get all backend settings
+/// - `PATCH /api/settings`           — partial update backend settings
+/// - `GET  /api/settings/client`     — get client preferences
+/// - `PUT  /api/settings/client`     — batch update client preferences
+/// - `GET  /api/providers`           — list all providers
+/// - `POST /api/providers`           — create a provider
+/// - `PUT  /api/providers/:id`       — update a provider
+/// - `DELETE /api/providers/:id`     — delete a provider
+pub fn system_routes(state: SystemRouterState) -> Router {
     Router::new()
         .route("/api/settings", get(get_settings).patch(update_settings))
         .route(
             "/api/settings/client",
             get(get_client_preferences).put(update_client_preferences),
         )
+        .route("/api/providers", get(list_providers).post(create_provider))
+        .route(
+            "/api/providers/{id}",
+            delete(delete_provider).put(update_provider),
+        )
         .with_state(state)
 }
 
-// ---------------------------------------------------------------------------
-// GET /api/settings
-// ---------------------------------------------------------------------------
+/// Backwards-compatible alias — delegates to `system_routes`.
+pub fn settings_routes(state: SystemRouterState) -> Router {
+    system_routes(state)
+}
+
+// ===========================================================================
+// Settings handlers
+// ===========================================================================
 
 async fn get_settings(
     State(state): State<SystemRouterState>,
@@ -48,10 +66,6 @@ async fn get_settings(
     let settings = state.settings_service.get_settings().await?;
     Ok(Json(ApiResponse::ok(settings)))
 }
-
-// ---------------------------------------------------------------------------
-// PATCH /api/settings
-// ---------------------------------------------------------------------------
 
 async fn update_settings(
     State(state): State<SystemRouterState>,
@@ -62,14 +76,12 @@ async fn update_settings(
     Ok(Json(ApiResponse::ok(settings)))
 }
 
-// ---------------------------------------------------------------------------
-// GET /api/settings/client
-// ---------------------------------------------------------------------------
+// ===========================================================================
+// Client preferences handlers
+// ===========================================================================
 
-/// Query parameters for the client preferences endpoint.
 #[derive(Debug, serde::Deserialize, Default)]
 struct ClientPrefQuery {
-    /// Comma-separated list of keys to filter by.
     keys: Option<String>,
 }
 
@@ -95,15 +107,49 @@ async fn get_client_preferences(
     Ok(Json(ApiResponse::ok(prefs)))
 }
 
-// ---------------------------------------------------------------------------
-// PUT /api/settings/client
-// ---------------------------------------------------------------------------
-
 async fn update_client_preferences(
     State(state): State<SystemRouterState>,
     body: Result<Json<UpdateClientPreferencesRequest>, JsonRejection>,
 ) -> Result<Json<ApiResponse<()>>, AppError> {
     let Json(req) = body.map_err(|e| AppError::BadRequest(e.to_string()))?;
     state.client_pref_service.update_preferences(req).await?;
+    Ok(Json(ApiResponse::success()))
+}
+
+// ===========================================================================
+// Provider handlers
+// ===========================================================================
+
+async fn list_providers(
+    State(state): State<SystemRouterState>,
+) -> Result<Json<ApiResponse<Vec<ProviderResponse>>>, AppError> {
+    let providers = state.provider_service.list().await?;
+    Ok(Json(ApiResponse::ok(providers)))
+}
+
+async fn create_provider(
+    State(state): State<SystemRouterState>,
+    body: Result<Json<CreateProviderRequest>, JsonRejection>,
+) -> Result<(StatusCode, Json<ApiResponse<ProviderResponse>>), AppError> {
+    let Json(req) = body.map_err(|e| AppError::BadRequest(e.to_string()))?;
+    let provider = state.provider_service.create(req).await?;
+    Ok((StatusCode::CREATED, Json(ApiResponse::ok(provider))))
+}
+
+async fn update_provider(
+    State(state): State<SystemRouterState>,
+    Path(id): Path<String>,
+    body: Result<Json<UpdateProviderRequest>, JsonRejection>,
+) -> Result<Json<ApiResponse<ProviderResponse>>, AppError> {
+    let Json(req) = body.map_err(|e| AppError::BadRequest(e.to_string()))?;
+    let provider = state.provider_service.update(&id, req).await?;
+    Ok(Json(ApiResponse::ok(provider)))
+}
+
+async fn delete_provider(
+    State(state): State<SystemRouterState>,
+    Path(id): Path<String>,
+) -> Result<Json<ApiResponse<()>>, AppError> {
+    state.provider_service.delete(&id).await?;
     Ok(Json(ApiResponse::success()))
 }

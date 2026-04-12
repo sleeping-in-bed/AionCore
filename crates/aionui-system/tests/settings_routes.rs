@@ -11,12 +11,19 @@ use axum::http::{Request, StatusCode};
 use http_body_util::BodyExt;
 use tower::ServiceExt;
 
-use aionui_db::{SqliteClientPreferenceRepository, SqliteSettingsRepository, init_database_memory};
-use aionui_system::{ClientPrefService, SettingsService, SystemRouterState, settings_routes};
+use aionui_db::{
+    SqliteClientPreferenceRepository, SqliteProviderRepository, SqliteSettingsRepository,
+    init_database_memory,
+};
+use aionui_system::{
+    ClientPrefService, ProviderService, SettingsService, SystemRouterState, settings_routes,
+};
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+const TEST_ENCRYPTION_KEY: [u8; 32] = [0x42; 32];
 
 fn build_state(db: &aionui_db::Database) -> SystemRouterState {
     SystemRouterState {
@@ -26,6 +33,10 @@ fn build_state(db: &aionui_db::Database) -> SystemRouterState {
         client_pref_service: ClientPrefService::new(Arc::new(
             SqliteClientPreferenceRepository::new(db.pool().clone()),
         )),
+        provider_service: ProviderService::new(
+            Arc::new(SqliteProviderRepository::new(db.pool().clone())),
+            TEST_ENCRYPTION_KEY,
+        ),
     }
 }
 
