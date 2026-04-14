@@ -1,3 +1,4 @@
+pub mod channel;
 mod client_preference;
 pub mod conversation;
 pub mod mcp_server;
@@ -5,6 +6,7 @@ pub mod oauth_token;
 pub mod provider;
 pub mod remote_agent;
 mod settings;
+mod sqlite_channel;
 mod sqlite_client_preference;
 mod sqlite_conversation;
 mod sqlite_mcp_server;
@@ -15,6 +17,7 @@ mod sqlite_settings;
 mod sqlite_user;
 mod user;
 
+pub use channel::IChannelRepository;
 pub use client_preference::IClientPreferenceRepository;
 pub use conversation::IConversationRepository;
 pub use mcp_server::IMcpServerRepository;
@@ -22,6 +25,7 @@ pub use oauth_token::IOAuthTokenRepository;
 pub use provider::IProviderRepository;
 pub use remote_agent::IRemoteAgentRepository;
 pub use settings::ISettingsRepository;
+pub use sqlite_channel::SqliteChannelRepository;
 pub use sqlite_client_preference::SqliteClientPreferenceRepository;
 pub use sqlite_conversation::SqliteConversationRepository;
 pub use sqlite_mcp_server::SqliteMcpServerRepository;

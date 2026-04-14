@@ -6,12 +6,14 @@ mod repository;
 pub use database::{init_database, init_database_memory, Database};
 pub use error::DbError;
 pub use repository::{
-    IClientPreferenceRepository, IConversationRepository, IMcpServerRepository,
-    IOAuthTokenRepository, IProviderRepository, IRemoteAgentRepository, ISettingsRepository,
-    IUserRepository, SqliteClientPreferenceRepository, SqliteConversationRepository,
-    SqliteMcpServerRepository, SqliteOAuthTokenRepository, SqliteProviderRepository,
-    SqliteRemoteAgentRepository, SqliteSettingsRepository, SqliteUserRepository,
+    IChannelRepository, IClientPreferenceRepository, IConversationRepository,
+    IMcpServerRepository, IOAuthTokenRepository, IProviderRepository, IRemoteAgentRepository,
+    ISettingsRepository, IUserRepository, SqliteChannelRepository,
+    SqliteClientPreferenceRepository, SqliteConversationRepository, SqliteMcpServerRepository,
+    SqliteOAuthTokenRepository, SqliteProviderRepository, SqliteRemoteAgentRepository,
+    SqliteSettingsRepository, SqliteUserRepository,
 };
+pub use repository::channel::UpdatePluginStatusParams;
 pub use repository::conversation::{
     ConversationFilters, ConversationRowUpdate, MessageRowUpdate, MessageSearchRow, SortOrder,
 };

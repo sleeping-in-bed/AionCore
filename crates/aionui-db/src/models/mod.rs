@@ -1,3 +1,4 @@
+mod channel;
 mod client_preference;
 mod conversation;
 mod mcp_server;
@@ -8,6 +9,7 @@ mod remote_agent;
 mod system_settings;
 mod user;
 
+pub use channel::{AssistantSessionRow, AssistantUserRow, ChannelPluginRow, PairingCodeRow};
 pub use client_preference::ClientPreference;
 pub use conversation::ConversationRow;
 pub use mcp_server::McpServerRow;
