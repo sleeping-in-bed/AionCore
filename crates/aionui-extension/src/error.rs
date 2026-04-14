@@ -18,6 +18,9 @@ pub enum ExtensionError {
     #[error("File reference not found: {0}")]
     FileReferenceNotFound(String),
 
+    #[error("Path traversal detected: {0}")]
+    PathTraversal(String),
+
     #[error("{0}")]
     Io(#[from] std::io::Error),
 
@@ -36,6 +39,9 @@ impl From<ExtensionError> for AppError {
             }
             ExtensionError::FileReferenceNotFound(path) => {
                 AppError::NotFound(format!("File reference not found: {path}"))
+            }
+            ExtensionError::PathTraversal(path) => {
+                AppError::BadRequest(format!("Path traversal detected: {path}"))
             }
             ExtensionError::Io(e) => AppError::Internal(e.to_string()),
             ExtensionError::JsonParse(e) => AppError::BadRequest(e.to_string()),
@@ -90,6 +96,22 @@ mod tests {
             err.to_string(),
             "File reference not found: prompts/system.md"
         );
+    }
+
+    #[test]
+    fn test_path_traversal_error_display() {
+        let err = ExtensionError::PathTraversal("../../etc/passwd".into());
+        assert_eq!(
+            err.to_string(),
+            "Path traversal detected: ../../etc/passwd"
+        );
+    }
+
+    #[test]
+    fn test_into_app_error_path_traversal() {
+        let err = ExtensionError::PathTraversal("../secret".into());
+        let app_err: AppError = err.into();
+        assert!(matches!(app_err, AppError::BadRequest(_)));
     }
 
     #[test]

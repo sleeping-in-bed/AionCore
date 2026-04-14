@@ -112,3 +112,55 @@ fn dollar_without_brace_is_literal() {
     let result = resolve_env_templates("price is $50 each", false).unwrap();
     assert_eq!(result, "price is $50 each");
 }
+
+// -- Path traversal protection --
+
+#[test]
+fn path_traversal_with_dotdot_blocked() {
+    let dir = std::env::temp_dir().join("ext_it_traversal");
+    std::fs::create_dir_all(&dir).unwrap();
+
+    let outside = std::env::temp_dir().join("ext_it_traversal_outside.txt");
+    std::fs::write(&outside, "should not be readable").unwrap();
+
+    let err = resolve_file_reference("@file:../ext_it_traversal_outside.txt", &dir).unwrap_err();
+    let msg = err.to_string();
+    assert!(msg.contains("traversal") || msg.contains("Path traversal"));
+
+    std::fs::remove_dir_all(&dir).unwrap();
+    std::fs::remove_file(&outside).unwrap();
+}
+
+#[test]
+fn path_traversal_nested_dotdot_blocked() {
+    let dir = std::env::temp_dir().join("ext_it_traversal_nested");
+    let sub = dir.join("deep");
+    std::fs::create_dir_all(&sub).unwrap();
+
+    let outside = std::env::temp_dir().join("ext_it_traversal_nested_secret.txt");
+    std::fs::write(&outside, "nested secret").unwrap();
+
+    let err = resolve_file_reference(
+        "@file:deep/../../ext_it_traversal_nested_secret.txt",
+        &dir,
+    )
+    .unwrap_err();
+    let msg = err.to_string();
+    assert!(msg.contains("traversal") || msg.contains("Path traversal"));
+
+    std::fs::remove_dir_all(&dir).unwrap();
+    std::fs::remove_file(&outside).unwrap();
+}
+
+#[test]
+fn valid_subdirectory_reference_allowed() {
+    let dir = std::env::temp_dir().join("ext_it_valid_subdir");
+    let sub = dir.join("data");
+    std::fs::create_dir_all(&sub).unwrap();
+    std::fs::write(sub.join("config.json"), r#"{"key": "value"}"#).unwrap();
+
+    let result = resolve_file_reference("@file:data/config.json", &dir).unwrap();
+    assert_eq!(result, r#"{"key": "value"}"#);
+
+    std::fs::remove_dir_all(&dir).unwrap();
+}

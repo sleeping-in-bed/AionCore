@@ -48,6 +48,8 @@ fn collect_until_closing_brace(chars: &mut std::iter::Peekable<std::str::Chars<'
 
 /// If `value` starts with `@file:`, read the referenced file content relative to `ext_dir`.
 /// Otherwise return the value unchanged.
+///
+/// Path traversal protection: the resolved path must remain within `ext_dir`.
 pub fn resolve_file_reference(value: &str, ext_dir: &Path) -> Result<String, ExtensionError> {
     let Some(rel_path) = value.strip_prefix("@file:") else {
         return Ok(value.to_owned());
@@ -66,7 +68,20 @@ pub fn resolve_file_reference(value: &str, ext_dir: &Path) -> Result<String, Ext
         ));
     }
 
-    std::fs::read_to_string(&full_path).map_err(ExtensionError::from)
+    // Canonicalize both paths to resolve symlinks and `..` components,
+    // then verify the target stays within the extension directory.
+    let canonical_dir = ext_dir
+        .canonicalize()
+        .map_err(ExtensionError::from)?;
+    let canonical_file = full_path
+        .canonicalize()
+        .map_err(ExtensionError::from)?;
+
+    if !canonical_file.starts_with(&canonical_dir) {
+        return Err(ExtensionError::PathTraversal(rel_path.to_owned()));
+    }
+
+    std::fs::read_to_string(&canonical_file).map_err(ExtensionError::from)
 }
 
 /// Resolve all `${ENV_VAR}` placeholders in a map of key-value env entries.
@@ -179,6 +194,56 @@ mod tests {
     fn test_file_reference_empty_path() {
         let err = resolve_file_reference("@file:", Path::new("/tmp")).unwrap_err();
         assert!(matches!(err, ExtensionError::FileReferenceNotFound(_)));
+    }
+
+    #[test]
+    fn test_file_reference_path_traversal_blocked() {
+        let dir = std::env::temp_dir().join("ext_test_traversal");
+        std::fs::create_dir_all(&dir).unwrap();
+
+        // Create a file outside the extension directory
+        let outside_file = std::env::temp_dir().join("ext_test_traversal_secret.txt");
+        std::fs::write(&outside_file, "secret data").unwrap();
+
+        let err =
+            resolve_file_reference("@file:../ext_test_traversal_secret.txt", &dir).unwrap_err();
+        assert!(matches!(err, ExtensionError::PathTraversal(_)));
+
+        std::fs::remove_dir_all(&dir).unwrap();
+        std::fs::remove_file(&outside_file).unwrap();
+    }
+
+    #[test]
+    fn test_file_reference_nested_traversal_blocked() {
+        let dir = std::env::temp_dir().join("ext_test_nested_traversal");
+        let sub = dir.join("sub");
+        std::fs::create_dir_all(&sub).unwrap();
+
+        let outside_file = std::env::temp_dir().join("ext_test_nested_secret.txt");
+        std::fs::write(&outside_file, "nested secret").unwrap();
+
+        let err = resolve_file_reference(
+            "@file:sub/../../ext_test_nested_secret.txt",
+            &dir,
+        )
+        .unwrap_err();
+        assert!(matches!(err, ExtensionError::PathTraversal(_)));
+
+        std::fs::remove_dir_all(&dir).unwrap();
+        std::fs::remove_file(&outside_file).unwrap();
+    }
+
+    #[test]
+    fn test_file_reference_valid_subdir_allowed() {
+        let dir = std::env::temp_dir().join("ext_test_valid_subdir");
+        let sub = dir.join("prompts");
+        std::fs::create_dir_all(&sub).unwrap();
+        std::fs::write(sub.join("system.md"), "valid content").unwrap();
+
+        let result = resolve_file_reference("@file:prompts/system.md", &dir).unwrap();
+        assert_eq!(result, "valid content");
+
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     // -- resolve_env_map --
