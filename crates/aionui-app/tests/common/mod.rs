@@ -7,9 +7,7 @@ use tower::ServiceExt;
 use wiremock::MockServer;
 
 use aionui_app::{
-    AppServices, build_acp_state, build_auxiliary_state, build_connection_test_state,
-    build_conversation_state, build_remote_agent_state, build_system_state, create_router,
-    create_router_with_system_state,
+    AppServices, build_module_states, create_router, create_router_with_states,
 };
 use aionui_system::VersionCheckService;
 
@@ -26,26 +24,13 @@ pub async fn build_app_with_mock_version(
 ) -> (axum::Router, AppServices) {
     let db = aionui_db::init_database_memory().await.unwrap();
     let services = AppServices::from_database(db).await.unwrap();
-    let mut system_state = build_system_state(&services);
-    system_state.version_check_service = VersionCheckService::with_api_base(
+    let mut states = build_module_states(&services);
+    states.system.version_check_service = VersionCheckService::with_api_base(
         reqwest::Client::new(),
         current_version.to_owned(),
         mock_server.uri(),
     );
-    let conversation_state = build_conversation_state(&services);
-    let remote_agent_state = build_remote_agent_state(&services);
-    let acp_state = build_acp_state(&services);
-    let connection_test_state = build_connection_test_state();
-    let auxiliary_state = build_auxiliary_state(&services);
-    let router = create_router_with_system_state(
-        &services,
-        system_state,
-        conversation_state,
-        remote_agent_state,
-        acp_state,
-        connection_test_state,
-        auxiliary_state,
-    );
+    let router = create_router_with_states(&services, states);
     (router, services)
 }
 

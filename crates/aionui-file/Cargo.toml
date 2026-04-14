@@ -8,6 +8,7 @@ aionui-api-types.workspace = true
 aionui-common.workspace = true
 aionui-realtime.workspace = true
 async-trait.workspace = true
+axum.workspace = true
 tokio.workspace = true
 walkdir.workspace = true
 ignore.workspace = true

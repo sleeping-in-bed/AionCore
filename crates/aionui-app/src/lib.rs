@@ -23,6 +23,9 @@ use aionui_db::{
     SqliteProviderRepository, SqliteRemoteAgentRepository, SqliteSettingsRepository,
     SqliteUserRepository,
 };
+use aionui_file::{
+    FileRouterState, FileService, FileWatchService, SnapshotService, file_routes,
+};
 use aionui_realtime::{
     BroadcastEventBus, NoopMessageRouter, WebSocketManager, WsHandlerState, ws_upgrade_handler,
 };
@@ -163,10 +166,37 @@ pub fn derive_encryption_key(jwt_secret: &str) -> [u8; 32] {
     hasher.finalize().into()
 }
 
+/// All module-level router states bundled into a single struct.
+///
+/// Reduces parameter bloat on router constructors and makes it easy for
+/// tests to override individual modules.
+pub struct ModuleStates {
+    pub system: SystemRouterState,
+    pub conversation: ConversationRouterState,
+    pub remote_agent: RemoteAgentRouterState,
+    pub acp: AcpRouterState,
+    pub connection_test: ConnectionTestRouterState,
+    pub auxiliary: AuxiliaryRouterState,
+    pub file: FileRouterState,
+}
+
+/// Build all default `ModuleStates` from application services.
+pub fn build_module_states(services: &AppServices) -> ModuleStates {
+    ModuleStates {
+        system: build_system_state(services),
+        conversation: build_conversation_state(services),
+        remote_agent: build_remote_agent_state(services),
+        acp: build_acp_state(services),
+        connection_test: build_connection_test_state(),
+        auxiliary: build_auxiliary_state(services),
+        file: build_file_state(services),
+    }
+}
+
 /// Build the default `SystemRouterState` from application services.
 ///
 /// Tests can call this and override individual fields before passing
-/// to [`create_router_with_system_state`].
+/// to [`create_router_with_states`].
 pub fn build_system_state(services: &AppServices) -> SystemRouterState {
     let encryption_key = derive_encryption_key(&services.jwt_secret_raw);
     let pool = services.database.pool().clone();
@@ -199,23 +229,10 @@ pub fn build_system_state(services: &AppServices) -> SystemRouterState {
 /// Middleware stack (outermost → innermost):
 /// 1. Security response headers (X-Frame-Options, etc.)
 /// 2. CSRF protection (Double Submit Cookie)
-/// 3. Route handlers (auth routes + system routes + conversation routes + health check)
+/// 3. Route handlers (auth routes + system routes + conversation routes + file routes + health check)
 pub fn create_router(services: &AppServices) -> Router {
-    let system_state = build_system_state(services);
-    let conversation_state = build_conversation_state(services);
-    let remote_agent_state = build_remote_agent_state(services);
-    let acp_state = build_acp_state(services);
-    let connection_test_state = build_connection_test_state();
-    let auxiliary_state = build_auxiliary_state(services);
-    create_router_with_system_state(
-        services,
-        system_state,
-        conversation_state,
-        remote_agent_state,
-        acp_state,
-        connection_test_state,
-        auxiliary_state,
-    )
+    let states = build_module_states(services);
+    create_router_with_states(services, states)
 }
 
 /// Build the default `ConversationRouterState` from application services.
@@ -259,6 +276,25 @@ pub fn build_auxiliary_state(services: &AppServices) -> AuxiliaryRouterState {
     }
 }
 
+/// Build the default `FileRouterState` from application services.
+pub fn build_file_state(services: &AppServices) -> FileRouterState {
+    let broadcaster = services.event_bus.clone();
+    let allowed_roots = vec![
+        std::env::temp_dir(),
+        dirs::home_dir().unwrap_or_else(std::env::temp_dir),
+    ];
+    let file_service = Arc::new(FileService::new(broadcaster.clone(), allowed_roots));
+    let watch_service = Arc::new(
+        FileWatchService::new(broadcaster).expect("file watch service initialization"),
+    );
+    let snapshot_service = Arc::new(SnapshotService::new());
+    FileRouterState {
+        file_service,
+        watch_service,
+        snapshot_service,
+    }
+}
+
 /// Build the default `WsHandlerState` from application services.
 ///
 /// Tests can call this and override individual fields before passing
@@ -279,44 +315,25 @@ pub fn build_ws_state(services: &AppServices) -> WsHandlerState {
     }
 }
 
-/// Create the application router with a custom system state.
+/// Create the application router with custom module states.
 ///
 /// Used for testing when specific service overrides are needed
 /// (e.g. injecting a mock HTTP server URL for version check).
-pub fn create_router_with_system_state(
+pub fn create_router_with_states(
     services: &AppServices,
-    system_state: SystemRouterState,
-    conversation_state: ConversationRouterState,
-    remote_agent_state: RemoteAgentRouterState,
-    acp_state: AcpRouterState,
-    connection_test_state: ConnectionTestRouterState,
-    auxiliary_state: AuxiliaryRouterState,
+    states: ModuleStates,
 ) -> Router {
     let ws_state = build_ws_state(services);
-    create_router_with_all_state(
-        services,
-        system_state,
-        conversation_state,
-        remote_agent_state,
-        acp_state,
-        connection_test_state,
-        auxiliary_state,
-        ws_state,
-    )
+    create_router_with_all_state(services, states, ws_state)
 }
 
-/// Create the application router with custom system, conversation, and WebSocket state.
+/// Create the application router with custom module states and WebSocket state.
 ///
 /// Full-control variant used by tests that need to override
-/// system services, conversation services, and WebSocket behaviour.
+/// module services and WebSocket behaviour.
 pub fn create_router_with_all_state(
     services: &AppServices,
-    system_state: SystemRouterState,
-    conversation_state: ConversationRouterState,
-    remote_agent_state: RemoteAgentRouterState,
-    acp_state: AcpRouterState,
-    connection_test_state: ConnectionTestRouterState,
-    auxiliary_state: AuxiliaryRouterState,
+    states: ModuleStates,
     ws_state: WsHandlerState,
 ) -> Router {
     let auth_state = AuthRouterState {
@@ -332,27 +349,31 @@ pub fn create_router_with_all_state(
     };
 
     // System routes protected by auth middleware
-    let system_authenticated = system_routes(system_state)
+    let system_authenticated = system_routes(states.system)
         .route_layer(from_fn_with_state(auth_mw_state.clone(), auth_middleware));
 
     // Conversation routes protected by auth middleware
-    let conversation_authenticated = conversation_routes(conversation_state)
+    let conversation_authenticated = conversation_routes(states.conversation)
         .route_layer(from_fn_with_state(auth_mw_state.clone(), auth_middleware));
 
     // Remote agent routes protected by auth middleware
-    let remote_agent_authenticated = remote_agent_routes(remote_agent_state)
+    let remote_agent_authenticated = remote_agent_routes(states.remote_agent)
         .route_layer(from_fn_with_state(auth_mw_state.clone(), auth_middleware));
 
     // ACP management routes protected by auth middleware
-    let acp_authenticated = acp_routes(acp_state)
+    let acp_authenticated = acp_routes(states.acp)
         .route_layer(from_fn_with_state(auth_mw_state.clone(), auth_middleware));
 
     // Connection test routes (Bedrock, Gemini) protected by auth middleware
-    let connection_test_authenticated = connection_test_routes(connection_test_state)
+    let connection_test_authenticated = connection_test_routes(states.connection_test)
         .route_layer(from_fn_with_state(auth_mw_state.clone(), auth_middleware));
 
     // Auxiliary routes (workspace, side-question, reload-context, slash-commands, openclaw runtime)
-    let auxiliary_authenticated = auxiliary_routes(auxiliary_state)
+    let auxiliary_authenticated = auxiliary_routes(states.auxiliary)
+        .route_layer(from_fn_with_state(auth_mw_state.clone(), auth_middleware));
+
+    // File routes protected by auth middleware
+    let file_authenticated = file_routes(states.file)
         .route_layer(from_fn_with_state(auth_mw_state, auth_middleware));
 
     // WebSocket upgrade route — exempt from CSRF (no cookie-based
@@ -370,6 +391,7 @@ pub fn create_router_with_all_state(
         .merge(acp_authenticated)
         .merge(connection_test_authenticated)
         .merge(auxiliary_authenticated)
+        .merge(file_authenticated)
         .layer(middleware::from_fn_with_state(
             services.cookie_config.clone(),
             csrf_middleware,
