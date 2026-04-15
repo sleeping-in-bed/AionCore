@@ -12,6 +12,7 @@ use super::types::{
     CreateCardInstanceResponse, DeliverCardRequest, DeliverCardResponse,
     RegisterStreamRequest, RegisterStreamResponse, RobotInfoResponse, SendRobotMessageRequest,
     SendRobotMessageResponse, StreamSubscription, StreamingWriteRequest, StreamingWriteResponse,
+    UpdateCardRequest, UpdateCardResponse,
 };
 
 const DINGTALK_API_BASE: &str = "https://api.dingtalk.com";
@@ -278,6 +279,37 @@ impl DingtalkApi {
             .map_err(|e| {
                 ChannelError::MessageSendFailed(format!(
                     "DingTalk streaming write parse failed: {e}"
+                ))
+            })?;
+
+        Ok(resp)
+    }
+
+    /// Update (finalize) an AI Card instance with new data (e.g., buttons).
+    pub async fn update_card(
+        &self,
+        request: &UpdateCardRequest,
+    ) -> Result<UpdateCardResponse, ChannelError> {
+        let token = self.get_token().await?;
+        let url = format!("{DINGTALK_API_BASE}/v1.0/card/instances");
+
+        let resp: UpdateCardResponse = self
+            .client
+            .put(&url)
+            .header("x-acs-dingtalk-access-token", &token)
+            .json(request)
+            .send()
+            .await
+            .map_err(|e| {
+                ChannelError::MessageSendFailed(format!(
+                    "DingTalk update card failed: {e}"
+                ))
+            })?
+            .json()
+            .await
+            .map_err(|e| {
+                ChannelError::MessageSendFailed(format!(
+                    "DingTalk update card parse failed: {e}"
                 ))
             })?;
 

@@ -21,6 +21,7 @@ use super::types::{
     parse_dingtalk_callback, BotMessageCallback, CardActionCallback, CardData,
     CreateCardInstanceRequest, DeliverCardRequest, ImGroupDeliverModel, ImRobotDeliverModel,
     SendRobotMessageRequest, StreamAck, StreamFrame, StreamingWriteRequest, SystemEvent,
+    UpdateCardRequest,
 };
 
 /// Maximum reconnect attempts before giving up.
@@ -212,16 +213,32 @@ impl ChannelPlugin for DingtalkPlugin {
             DINGTALK_MESSAGE_LIMIT,
         );
 
+        // Presence of buttons signals the final message in a streaming sequence.
+        let is_final = message.buttons.is_some();
+
         // AI Card streaming write
         let req = StreamingWriteRequest {
             out_track_id: message_id.to_string(),
             key: "content".into(),
             content: text,
-            is_eof: false,
-            is_last: false,
+            is_eof: is_final,
+            is_last: is_final,
         };
 
         api.streaming_write(&req).await?;
+
+        // When finalizing, update the card with button actions.
+        if let Some(ref button_rows) = message.buttons {
+            let card_param_map = build_card_param_map("", Some(button_rows));
+            let update_req = UpdateCardRequest {
+                out_track_id: message_id.to_string(),
+                card_data: CardData {
+                    card_param_map: Some(card_param_map),
+                },
+            };
+            api.update_card(&update_req).await?;
+        }
+
         Ok(())
     }
 
@@ -1013,6 +1030,71 @@ mod tests {
         assert_eq!(ack.code, 200);
         assert_eq!(ack.headers.message_id, "msg_123");
         assert_eq!(ack.message, "OK");
+    }
+
+    // -- build_card_param_map for update (empty text, buttons only) ----------
+
+    #[test]
+    fn build_card_param_map_empty_text_with_buttons() {
+        use crate::types::ActionButton;
+        let buttons = vec![vec![ActionButton {
+            label: "Confirm".into(),
+            action: "system.confirm".into(),
+            params: None,
+        }]];
+        let map = build_card_param_map("", Some(&buttons));
+        assert_eq!(map["content"], "");
+        let actions = map["actions"].as_array().unwrap();
+        assert_eq!(actions.len(), 1);
+        assert_eq!(actions[0]["label"], "Confirm");
+    }
+
+    // -- edit_message: not initialized guard -----------------------------------
+
+    #[tokio::test]
+    async fn edit_message_not_initialized_returns_error() {
+        let plugin = DingtalkPlugin::new();
+        let msg = UnifiedOutgoingMessage {
+            message_type: crate::types::OutgoingMessageType::Text,
+            text: Some("hello".into()),
+            parse_mode: None,
+            buttons: None,
+            keyboard: None,
+            image_url: None,
+            file_url: None,
+            file_name: None,
+            media_actions: None,
+            reply_to_message_id: None,
+            silent: None,
+        };
+        let result = plugin.edit_message("chat1", "msg1", msg).await;
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("not initialized"), "expected init error: {err}");
+    }
+
+    // -- send_message: not initialized guard -----------------------------------
+
+    #[tokio::test]
+    async fn send_message_not_initialized_returns_error() {
+        let plugin = DingtalkPlugin::new();
+        let msg = UnifiedOutgoingMessage {
+            message_type: crate::types::OutgoingMessageType::Text,
+            text: Some("hello".into()),
+            parse_mode: None,
+            buttons: None,
+            keyboard: None,
+            image_url: None,
+            file_url: None,
+            file_name: None,
+            media_actions: None,
+            reply_to_message_id: None,
+            silent: None,
+        };
+        let result = plugin.send_message("chat1", msg).await;
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("not initialized"), "expected init error: {err}");
     }
 
     // -- DingtalkPlugin constructor -----------------------------------------

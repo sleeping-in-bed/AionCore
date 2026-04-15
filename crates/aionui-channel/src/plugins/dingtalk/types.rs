@@ -353,7 +353,6 @@ pub(crate) struct StreamingWriteResponse {
 /// Request to update (finalize) a card instance.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-#[allow(dead_code)]
 pub(crate) struct UpdateCardRequest {
     /// Card instance ID.
     pub out_track_id: String,
