@@ -660,10 +660,16 @@ fn build_keyboard_markup(msg: &UnifiedOutgoingMessage) -> Option<ReplyMarkup> {
 /// Derive the category prefix from an action name.
 ///
 /// The mapping follows the `ActionCategory` routing in `ActionExecutor`:
+///   - `system.confirm` → `"chat"` (routed to `handle_chat_action`)
 ///   - `pairing.*` → `"platform"`
 ///   - `chat.*` / `action.*` → `"chat"`
 ///   - everything else (`session.*`, `help.*`, `settings.*`, `agent.*`, `system.*`) → `"system"`
 fn action_category_prefix(action: &str) -> &'static str {
+    // Full-name overrides first: `system.confirm` is handled by
+    // `handle_chat_action` in ActionExecutor despite the "system." prefix.
+    if action == "system.confirm" {
+        return "chat";
+    }
     let prefix = action.split('.').next().unwrap_or("");
     match prefix {
         "pairing" => "platform",
@@ -900,7 +906,7 @@ mod tests {
         assert_eq!(action_category_prefix("session.new"), "system");
         assert_eq!(action_category_prefix("help.show"), "system");
         assert_eq!(action_category_prefix("agent.select"), "system");
-        assert_eq!(action_category_prefix("system.confirm"), "system");
+        assert_eq!(action_category_prefix("system.confirm"), "chat");
         assert_eq!(action_category_prefix("settings.show"), "system");
     }
 
@@ -932,7 +938,8 @@ mod tests {
         };
         let encoded = format_callback_data(&btn);
         let parsed = parse_callback_data(&encoded).expect("should parse");
-        assert_eq!(parsed.category, ActionCategory::System);
+        // system.confirm is routed to handle_chat_action, so category is Chat
+        assert_eq!(parsed.category, ActionCategory::Chat);
         assert_eq!(parsed.action, "system.confirm");
         let params = parsed.params.expect("should have params");
         assert_eq!(params.get("callId").unwrap(), "abc123");
