@@ -22,14 +22,16 @@ use crate::convert::{
 };
 use crate::stream_relay::StreamRelay;
 
-/// Business logic for conversation CRUD operations.
-///
-/// Handles ID generation, defaults, extra-merge semantics,
-/// and broadcasts `conversation.listChanged` events via WebSocket.
+#[async_trait::async_trait]
+pub trait OnConversationDelete: Send + Sync {
+    async fn on_conversation_deleted(&self, conversation_id: &str);
+}
+
 #[derive(Clone)]
 pub struct ConversationService {
     repo: Arc<dyn IConversationRepository>,
     broadcaster: Arc<dyn EventBroadcaster>,
+    delete_hooks: Vec<Arc<dyn OnConversationDelete>>,
 }
 
 impl ConversationService {
@@ -37,7 +39,23 @@ impl ConversationService {
         repo: Arc<dyn IConversationRepository>,
         broadcaster: Arc<dyn EventBroadcaster>,
     ) -> Self {
-        Self { repo, broadcaster }
+        Self {
+            repo,
+            broadcaster,
+            delete_hooks: Vec::new(),
+        }
+    }
+
+    pub fn with_delete_hooks(
+        repo: Arc<dyn IConversationRepository>,
+        broadcaster: Arc<dyn EventBroadcaster>,
+        delete_hooks: Vec<Arc<dyn OnConversationDelete>>,
+    ) -> Self {
+        Self {
+            repo,
+            broadcaster,
+            delete_hooks,
+        }
     }
 
     /// Create a new conversation.
@@ -217,6 +235,10 @@ impl ConversationService {
             .and_then(|s| string_to_enum::<ConversationSource>(s).ok());
 
         self.repo.delete(id).await?;
+
+        for hook in &self.delete_hooks {
+            hook.on_conversation_deleted(id).await;
+        }
 
         self.broadcast_list_changed(id, "deleted", source.as_ref());
 

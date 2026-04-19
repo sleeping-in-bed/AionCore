@@ -5,7 +5,7 @@ pub mod state;
 pub mod stream_relay;
 
 pub use routes::conversation_routes;
-pub use service::ConversationService;
+pub use service::{ConversationService, OnConversationDelete};
 pub use state::ConversationRouterState;
 
 #[cfg(test)]

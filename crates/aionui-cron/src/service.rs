@@ -2,14 +2,14 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use aionui_api_types::{
-    CreateCronJobRequest, CronJobExecutedEvent, CronJobRemovedPayload, CronJobResponse,
-    CronScheduleDto, HasSkillResponse, ListCronJobsQuery, RunNowResponse, SaveCronSkillRequest,
-    UpdateCronJobRequest, WebSocketMessage,
+    CreateCronJobRequest, CronJobResponse, CronScheduleDto, HasSkillResponse, ListCronJobsQuery,
+    RunNowResponse, SaveCronSkillRequest, UpdateCronJobRequest,
 };
 use aionui_common::{generate_prefixed_id, now_ms};
 use aionui_db::{ICronRepository, UpdateCronJobParams};
-use aionui_realtime::EventBroadcaster;
 use tracing::{error, info, warn};
+
+use crate::events::CronEventEmitter;
 
 use crate::error::CronError;
 use crate::executor::{ExecutionResult, JobExecutor, RETRY_INTERVAL_MS};
@@ -36,7 +36,7 @@ pub struct CronService {
     repo: Arc<dyn ICronRepository>,
     scheduler: Arc<CronScheduler>,
     executor: Arc<JobExecutor>,
-    broadcaster: Arc<dyn EventBroadcaster>,
+    emitter: CronEventEmitter,
 }
 
 impl CronService {
@@ -44,13 +44,13 @@ impl CronService {
         repo: Arc<dyn ICronRepository>,
         scheduler: Arc<CronScheduler>,
         executor: Arc<JobExecutor>,
-        broadcaster: Arc<dyn EventBroadcaster>,
+        emitter: CronEventEmitter,
     ) -> Self {
         Self {
             repo,
             scheduler,
             executor,
-            broadcaster,
+            emitter,
         }
     }
 
@@ -112,7 +112,7 @@ impl CronService {
         let row = cron_job_to_row(&job)?;
         self.repo.insert(&row).await?;
         self.scheduler.schedule_job(&job);
-        self.broadcast_event("cron.jobCreated", &cron_job_to_response(&job));
+        self.emitter.emit_job_created(&cron_job_to_response(&job));
 
         info!(job_id = %job.id, name = %job.name, "Cron job created");
         Ok(job)
@@ -178,7 +178,7 @@ impl CronService {
         self.repo.update(job_id, &params).await?;
 
         self.scheduler.reschedule_job(&job);
-        self.broadcast_event("cron.jobUpdated", &cron_job_to_response(&job));
+        self.emitter.emit_job_updated(&cron_job_to_response(&job));
 
         info!(job_id = %job.id, "Cron job updated");
         Ok(job)
@@ -187,12 +187,7 @@ impl CronService {
     pub async fn remove_job(&self, job_id: &str) -> Result<(), CronError> {
         self.scheduler.cancel_job(job_id);
         self.repo.delete(job_id).await?;
-        self.broadcast_event(
-            "cron.jobRemoved",
-            &CronJobRemovedPayload {
-                job_id: job_id.to_owned(),
-            },
-        );
+        self.emitter.emit_job_removed(job_id);
         info!(job_id, "Cron job removed");
         Ok(())
     }
@@ -339,12 +334,12 @@ impl CronService {
             ExecutionResult::Success { conversation_id } => {
                 self.update_job_after_success(job_id, &conversation_id)
                     .await;
-                self.broadcast_executed_event(job_id, "ok", None);
+                self.emitter.emit_job_executed(job_id, "ok", None);
                 Ok(RunNowResponse { conversation_id })
             }
             ExecutionResult::Error { message } => {
                 self.update_job_after_error(job_id, &message).await;
-                self.broadcast_executed_event(job_id, "error", Some(&message));
+                self.emitter.emit_job_executed(job_id, "error", Some(&message));
                 Err(CronError::Scheduler(message))
             }
             _ => Err(CronError::Scheduler("unexpected execution result".into())),
@@ -441,7 +436,7 @@ impl CronService {
                 self.update_job_after_success(job_id, &conversation_id)
                     .await;
                 self.reschedule_after_execution(&job).await;
-                self.broadcast_executed_event(job_id, "ok", None);
+                self.emitter.emit_job_executed(job_id, "ok", None);
             }
             ExecutionResult::Retrying { attempt } => {
                 let params = UpdateCronJobParams {
@@ -463,12 +458,12 @@ impl CronService {
                     error!(job_id, error = %e, "Failed to update skipped status");
                 }
                 self.reschedule_after_execution(&job).await;
-                self.broadcast_executed_event(job_id, "skipped", None);
+                self.emitter.emit_job_executed(job_id, "skipped", None);
             }
             ExecutionResult::Error { message } => {
                 self.update_job_after_error(job_id, &message).await;
                 self.reschedule_after_execution(&job).await;
-                self.broadcast_executed_event(job_id, "error", Some(&message));
+                self.emitter.emit_job_executed(job_id, "error", Some(&message));
             }
         }
     }
@@ -537,7 +532,7 @@ impl CronService {
                 next_run_at: None,
                 ..job.clone()
             };
-            self.broadcast_event("cron.jobUpdated", &cron_job_to_response(&disabled));
+            self.emitter.emit_job_updated(&cron_job_to_response(&disabled));
 
             info!(job_id = %job.id, "At-type job executed, auto-disabled");
             return;
@@ -590,32 +585,40 @@ impl CronService {
         self.scheduler.schedule_job(&retry_job);
     }
 
-    fn broadcast_event<T: serde::Serialize>(&self, event_name: &str, payload: &T) {
-        let value = match serde_json::to_value(payload) {
-            Ok(v) => v,
+    pub async fn delete_jobs_by_conversation(&self, conversation_id: &str) {
+        let jobs = match self.repo.list_by_conversation(conversation_id).await {
+            Ok(rows) => rows,
             Err(e) => {
-                error!(event_name, error = %e, "Failed to serialize event payload");
+                error!(conversation_id, error = %e, "Failed to list cron jobs for cascade delete");
                 return;
             }
         };
-        self.broadcaster
-            .broadcast(WebSocketMessage::new(event_name, value));
-    }
 
-    fn broadcast_executed_event(
-        &self,
-        job_id: &str,
-        status: &str,
-        error: Option<&str>,
-    ) {
-        self.broadcast_event(
-            "cron.jobExecuted",
-            &CronJobExecutedEvent {
-                job_id: job_id.to_owned(),
-                status: status.to_owned(),
-                error: error.map(|s| s.to_owned()),
-            },
-        );
+        for row in &jobs {
+            self.scheduler.cancel_job(&row.id);
+            self.emitter.emit_job_removed(&row.id);
+        }
+
+        if let Err(e) = self.repo.delete_by_conversation(conversation_id).await {
+            error!(conversation_id, error = %e, "Failed to cascade-delete cron jobs");
+        } else if !jobs.is_empty() {
+            info!(
+                conversation_id,
+                count = jobs.len(),
+                "Cascade-deleted cron jobs for conversation"
+            );
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// OnConversationDelete implementation (cascade delete)
+// ---------------------------------------------------------------------------
+
+#[async_trait::async_trait]
+impl aionui_conversation::OnConversationDelete for CronService {
+    async fn on_conversation_deleted(&self, conversation_id: &str) {
+        self.delete_jobs_by_conversation(conversation_id).await;
     }
 }
 

@@ -26,6 +26,7 @@ use aionui_db::{
 use aionui_realtime::EventBroadcaster;
 
 use aionui_cron::busy_guard::CronBusyGuard;
+use aionui_cron::events::CronEventEmitter;
 use aionui_cron::executor::JobExecutor;
 use aionui_cron::scheduler::CronScheduler;
 use aionui_cron::service::CronService;
@@ -234,11 +235,12 @@ async fn setup() -> (CronService, Arc<dyn ICronRepository>, Arc<MockBroadcaster>
 
     let scheduler = Arc::new(CronScheduler::new(Arc::new(|_| {})));
 
+    let emitter = CronEventEmitter::new(bc.clone() as Arc<dyn EventBroadcaster>);
     let svc = CronService::new(
         cron_repo.clone(),
         scheduler,
         executor,
-        bc.clone() as Arc<dyn EventBroadcaster>,
+        emitter,
     );
 
     std::mem::forget(db);
@@ -942,4 +944,91 @@ async fn sr1_system_resume_missed_job() {
         updated.next_run_at.unwrap() > now_ms() - 2000,
         "next_run_at should be in the future"
     );
+}
+
+// ── CD-1: Cascade delete cron jobs when conversation is deleted ──
+
+#[tokio::test]
+async fn cd1_cascade_delete_by_conversation() {
+    let (svc, repo, bc) = setup().await;
+
+    let mut req_a = make_create_req("Cascade A", every_60s());
+    req_a.conversation_id = "conv_cascade".into();
+    let job_a = svc.add_job(req_a).await.unwrap();
+
+    let mut req_b = make_create_req("Cascade B", every_60s());
+    req_b.conversation_id = "conv_cascade".into();
+    let job_b = svc.add_job(req_b).await.unwrap();
+
+    let mut req_c = make_create_req("Unrelated", every_60s());
+    req_c.conversation_id = "conv_other".into();
+    let _job_c = svc.add_job(req_c).await.unwrap();
+
+    bc.take_events();
+
+    svc.delete_jobs_by_conversation("conv_cascade").await;
+
+    assert!(svc.get_job(&job_a.id).await.is_err());
+    assert!(svc.get_job(&job_b.id).await.is_err());
+
+    let remaining = svc
+        .list_jobs(&ListCronJobsQuery::default())
+        .await
+        .unwrap();
+    assert_eq!(remaining.len(), 1, "only the unrelated job should remain");
+
+    let events = bc.take_events();
+    let removed_events: Vec<_> = events
+        .iter()
+        .filter(|e| e.name == "cron.jobRemoved")
+        .collect();
+    assert_eq!(removed_events.len(), 2, "should emit 2 removed events");
+}
+
+// ── CD-2: Cascade delete on empty conversation (no-op) ──────────
+
+#[tokio::test]
+async fn cd2_cascade_delete_no_matching_jobs() {
+    let (svc, _repo, bc) = setup().await;
+
+    svc.add_job(make_create_req("Existing", every_60s()))
+        .await
+        .unwrap();
+    bc.take_events();
+
+    svc.delete_jobs_by_conversation("conv_nonexistent").await;
+
+    let events = bc.take_events();
+    assert!(
+        events.is_empty(),
+        "no events should be emitted when no jobs match"
+    );
+
+    let all = svc
+        .list_jobs(&ListCronJobsQuery::default())
+        .await
+        .unwrap();
+    assert_eq!(all.len(), 1, "existing job should remain untouched");
+}
+
+// ── CD-3: OnConversationDelete trait dispatches cascade ──────────
+
+#[tokio::test]
+async fn cd3_on_conversation_delete_trait() {
+    use aionui_conversation::OnConversationDelete;
+
+    let (svc, _repo, bc) = setup().await;
+
+    let mut req = make_create_req("Trait Cascade", every_60s());
+    req.conversation_id = "conv_trait_del".into();
+    let job = svc.add_job(req).await.unwrap();
+    bc.take_events();
+
+    svc.on_conversation_deleted("conv_trait_del").await;
+
+    assert!(svc.get_job(&job.id).await.is_err());
+
+    let events = bc.take_events();
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].name, "cron.jobRemoved");
 }
