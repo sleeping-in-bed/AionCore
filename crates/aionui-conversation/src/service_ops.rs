@@ -83,10 +83,39 @@ impl ConversationService {
     // ── Usage / Slash commands ──────────────────────────────────────
 
     pub async fn get_usage(&self, conversation_id: &str) -> Result<Option<serde_json::Value>, ConversationError> {
-        self.task(conversation_id)?
-            .get_usage()
-            .await
-            .map_err(ConversationError::from)
+        match self.task(conversation_id) {
+            Ok(task) => task.get_usage().await.map_err(ConversationError::from),
+            Err(ConversationError::ActiveAgentNotFound { .. }) => {
+                let row = self
+                    .conversation_repo()
+                    .get(conversation_id)
+                    .await
+                    .map_err(|e| ConversationError::internal(format!("Failed to load conversation: {e}")))?
+                    .ok_or_else(|| ConversationError::NotFound {
+                        id: conversation_id.to_owned(),
+                    })?;
+
+                let agent_type: aionui_common::AgentType = crate::convert::string_to_enum(&row.r#type)?;
+                if agent_type != aionui_common::AgentType::Acp {
+                    return Ok(None);
+                }
+
+                let state = self
+                    .acp_session_repo()
+                    .load_runtime_state(conversation_id)
+                    .await
+                    .map_err(|e| ConversationError::internal(format!("Failed to load ACP runtime usage: {e}")))?;
+
+                let Some(raw) = state.and_then(|state| state.context_usage_json) else {
+                    return Ok(None);
+                };
+
+                serde_json::from_str(&raw)
+                    .map(Some)
+                    .map_err(|e| ConversationError::internal(format!("Invalid persisted ACP usage JSON: {e}")))
+            }
+            Err(err) => Err(err),
+        }
     }
 
     pub async fn get_slash_commands(&self, conversation_id: &str) -> Result<Vec<SlashCommandItem>, ConversationError> {

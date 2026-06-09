@@ -31,10 +31,11 @@ mod team_mcp;
 mod websocket;
 
 pub use acp::{
-    AcpEnvResponse, AcpHealthCheckRequest, AcpHealthCheckResponse, AgentModeResponse, DetectCliRequest,
-    DetectCliResponse, GetModelInfoResponse, ModelInfoEntry, ModelInfoPayload, ProbeModelRequest, SetModeRequest,
-    SetModelRequest, SideQuestionRequest, SideQuestionResponse, TryConnectCustomAgentRequest,
-    TryConnectCustomAgentResponse, WorkspaceBrowseQuery, WorkspaceEntry,
+    AcpEnvResponse, AcpHealthCheckRequest, AcpHealthCheckResponse, AgentModeResponse, CodexRateLimitsSnapshot,
+    CodexRateLimitWindow, CodexStatusResponse, DetectCliRequest, DetectCliResponse, GetModelInfoResponse,
+    ModelInfoEntry, ModelInfoPayload, ProbeModelRequest, SetModeRequest, SetModelRequest, SideQuestionRequest,
+    SideQuestionResponse, TryConnectCustomAgentRequest, TryConnectCustomAgentResponse, WorkspaceBrowseQuery,
+    WorkspaceEntry,
 };
 pub use acp_prompt_hook::AcpPromptHookWarningPayload;
 pub use agent_build_extra::{

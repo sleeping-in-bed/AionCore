@@ -15,8 +15,8 @@ use axum::routing::{get, patch, post, put};
 
 use aionui_api_types::{
     AcpHealthCheckRequest, AcpHealthCheckResponse, AgentMetadata, ApiResponse, CustomAgentUpsertRequest,
-    DeleteCustomAgentResponse, ProviderHealthCheckRequest, ProviderHealthCheckResponse, SetEnabledRequest,
-    TryConnectCustomAgentRequest, TryConnectCustomAgentResponse,
+    CodexStatusResponse, DeleteCustomAgentResponse, ProviderHealthCheckRequest, ProviderHealthCheckResponse,
+    SetEnabledRequest, TryConnectCustomAgentRequest, TryConnectCustomAgentResponse,
 };
 use aionui_auth::CurrentUser;
 use aionui_common::ApiError;
@@ -30,6 +30,7 @@ pub fn agent_routes(state: AgentRouterState) -> Router {
         .route("/api/agents/refresh", post(refresh_agents))
         .route("/api/agents/health-check", post(health_check))
         .route("/api/agents/provider-health-check", post(provider_health_check))
+        .route("/api/agents/codex/status", get(get_codex_status))
         .route("/api/agents/{id}/enabled", patch(set_agent_enabled))
         .route("/api/agents/custom", post(create_custom))
         .route("/api/agents/custom/{id}", put(update_custom).delete(delete_custom))
@@ -82,6 +83,15 @@ async fn provider_health_check(
             .provider_health_check(req)
             .await
             .map_err(agent_error_to_api_error)?,
+    )))
+}
+
+async fn get_codex_status(
+    State(state): State<AgentRouterState>,
+    Extension(_user): Extension<CurrentUser>,
+) -> Result<Json<ApiResponse<CodexStatusResponse>>, ApiError> {
+    Ok(Json(ApiResponse::ok(
+        state.service.codex_status().await.map_err(agent_error_to_api_error)?,
     )))
 }
 

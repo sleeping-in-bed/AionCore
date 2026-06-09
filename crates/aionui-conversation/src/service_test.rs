@@ -503,9 +503,27 @@ struct RuntimeStateSaveCall {
     current_model_id: Option<Option<String>>,
 }
 
-#[derive(Default)]
 struct StubAcpSessionRepo {
     runtime_state_saves: Mutex<Vec<RuntimeStateSaveCall>>,
+    persisted_state: Mutex<Option<PersistedSessionState>>,
+}
+
+impl StubAcpSessionRepo {
+    fn with_persisted_state(state: Option<PersistedSessionState>) -> Self {
+        Self {
+            runtime_state_saves: Mutex::new(Vec::new()),
+            persisted_state: Mutex::new(state),
+        }
+    }
+}
+
+impl Default for StubAcpSessionRepo {
+    fn default() -> Self {
+        Self::with_persisted_state(Some(PersistedSessionState {
+            current_model_id: Some("deepseek-v4-pro".to_owned()),
+            ..Default::default()
+        }))
+    }
 }
 
 impl StubAcpSessionRepo {
@@ -541,10 +559,7 @@ impl IAcpSessionRepository for StubAcpSessionRepo {
         Ok(false)
     }
     async fn load_runtime_state(&self, _conversation_id: &str) -> Result<Option<PersistedSessionState>, DbError> {
-        Ok(Some(PersistedSessionState {
-            current_model_id: Some("deepseek-v4-pro".to_owned()),
-            ..Default::default()
-        }))
+        Ok(self.persisted_state.lock().unwrap().clone())
     }
     async fn save_runtime_state(
         &self,
@@ -1981,6 +1996,24 @@ async fn set_model_returns_confirmed_model_from_active_agent() {
     let model_info = response.model_info.expect("model info should be returned");
     assert_eq!(model_info.current_model_id.as_deref(), Some("model-b"));
     assert!(model_info.available_models.iter().any(|m| m.id == "model-b"));
+}
+
+#[tokio::test]
+async fn get_usage_falls_back_to_persisted_acp_runtime_usage_without_active_task() {
+    let acp_session_repo: Arc<dyn IAcpSessionRepository> = Arc::new(StubAcpSessionRepo::with_persisted_state(Some(
+        PersistedSessionState {
+            context_usage_json: Some(r#"{"used":1234,"size":200000}"#.to_owned()),
+            ..Default::default()
+        },
+    )));
+    let (svc, _broadcaster, _repo, _task_mgr) =
+        make_service_with_resolver_and_acp_session_repo(Arc::new(FixedSkillResolver { names: vec![] }), acp_session_repo);
+    let conv = svc.create("user_1", make_create_req()).await.unwrap();
+
+    let usage = svc.get_usage(&conv.id).await.unwrap().expect("persisted usage should be returned");
+
+    assert_eq!(usage["used"], 1234);
+    assert_eq!(usage["size"], 200000);
 }
 
 #[tokio::test]

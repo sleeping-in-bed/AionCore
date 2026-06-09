@@ -16,13 +16,14 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use aionui_api_types::{
-    AcpHealthCheckRequest, AcpHealthCheckResponse, AgentMetadata, ProviderHealthCheckRequest,
-    ProviderHealthCheckResponse,
+    AcpHealthCheckRequest, AcpHealthCheckResponse, AgentMetadata, CodexStatusResponse,
+    ProviderHealthCheckRequest, ProviderHealthCheckResponse,
 };
 use aionui_db::IProviderRepository;
 use aionui_realtime::EventBroadcaster;
 
 use super::provider_health::ProviderHealthCheckService;
+use super::codex_status::CodexStatusService;
 use crate::error::AgentError;
 use crate::registry::AgentRegistry;
 
@@ -31,6 +32,7 @@ pub struct AgentService {
     broadcaster: Arc<dyn EventBroadcaster>,
     data_dir: PathBuf,
     provider_health: ProviderHealthCheckService,
+    codex_status: Arc<CodexStatusService>,
 }
 
 impl AgentService {
@@ -42,11 +44,13 @@ impl AgentService {
         data_dir: PathBuf,
     ) -> Arc<Self> {
         let provider_health = ProviderHealthCheckService::new(provider_repo, encryption_key, data_dir.clone());
+        let codex_status = CodexStatusService::new(registry.clone(), data_dir.clone());
         Arc::new(Self {
             registry,
             broadcaster,
             data_dir,
             provider_health,
+            codex_status,
         })
     }
 
@@ -87,5 +91,9 @@ impl AgentService {
         req: ProviderHealthCheckRequest,
     ) -> Result<ProviderHealthCheckResponse, AgentError> {
         self.provider_health.health_check(req).await
+    }
+
+    pub async fn codex_status(&self) -> Result<CodexStatusResponse, AgentError> {
+        self.codex_status.get_status().await
     }
 }

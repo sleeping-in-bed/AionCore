@@ -41,6 +41,41 @@ pub struct AcpEnvResponse {
     pub env: HashMap<String, String>,
 }
 
+/// A single Codex ChatGPT usage-limit window.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CodexRateLimitWindow {
+    pub used_percent: f64,
+    pub window_duration_mins: i64,
+    pub resets_at: i64,
+}
+
+/// Rate-limit snapshot returned by Codex app-server.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CodexRateLimitsSnapshot {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub primary: Option<CodexRateLimitWindow>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub secondary: Option<CodexRateLimitWindow>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rate_limit_reached_type: Option<String>,
+}
+
+/// Current Codex account and rate-limit status.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CodexStatusResponse {
+    pub available: bool,
+    pub checked_at_ms: i64,
+    pub requires_openai_auth: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auth_mode: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub plan_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rate_limits: Option<CodexRateLimitsSnapshot>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
 /// Response for agent session mode.
 #[derive(Debug, Serialize)]
 pub struct AgentModeResponse {
