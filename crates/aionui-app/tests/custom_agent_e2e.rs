@@ -218,6 +218,35 @@ async fn custom_agent_advanced_overrides_persist() {
     }
 }
 
+#[tokio::test]
+async fn custom_agent_defaults_yolo_id_from_backend() {
+    let _guard = lock_env().await;
+    unsafe {
+        std::env::set_var("AIONUI_BYPASS_PROBE", "1");
+    }
+
+    let (mut app, services) = build_app().await;
+    let (token, csrf) = setup_and_login(&mut app, &services, "admin", "StrongP@ss1").await;
+
+    let (status, json) = create_agent(
+        &mut app,
+        &token,
+        &csrf,
+        json!({
+            "name": "Codex Full Auto",
+            "command": "sh",
+            "backend": "codex"
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(json["data"]["yolo_id"], "full-access");
+
+    unsafe {
+        std::env::remove_var("AIONUI_BYPASS_PROBE");
+    }
+}
+
 // ── Bad path: validation ──────────────────────────────────────────────────────
 //
 // These tests exercise the validate_upsert() path which fires before the

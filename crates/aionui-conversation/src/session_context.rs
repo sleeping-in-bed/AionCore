@@ -187,6 +187,7 @@ impl<'a> SessionContextBuilder<'a> {
         }
 
         self.resolve_acp_identity(row, &mut config, &extra).await?;
+        self.apply_custom_agent_default_mode(row, &mut config).await?;
 
         let belongs_to_team = extra
             .get("teamId")
@@ -256,6 +257,52 @@ impl<'a> SessionContextBuilder<'a> {
             "session_context: resolved legacy ACP backend fallback"
         );
         config.agent_id = Some(row_meta.id);
+        Ok(())
+    }
+
+    async fn apply_custom_agent_default_mode(
+        &self,
+        row: &ConversationRow,
+        config: &mut AcpBuildExtra,
+    ) -> Result<(), ConversationError> {
+        if config
+            .session_mode
+            .as_deref()
+            .is_some_and(|value| !value.trim().is_empty())
+        {
+            return Ok(());
+        }
+
+        let Some(agent_id) = config.agent_id.as_deref().filter(|value| !value.is_empty()) else {
+            return Ok(());
+        };
+
+        let Some(agent_row) = self
+            .agent_metadata_repo
+            .get(agent_id)
+            .await
+            .map_err(|e| ConversationError::internal(format!("agent_metadata lookup: {e}")))?
+        else {
+            return Ok(());
+        };
+
+        if agent_row.agent_source != "custom" {
+            return Ok(());
+        }
+
+        let mode = agent_row.yolo_id.unwrap_or_else(|| {
+            AgentType::Acp
+                .full_auto_mode_id(agent_row.backend.as_deref())
+                .to_owned()
+        });
+
+        debug!(
+            conversation_id = %row.id,
+            agent_id,
+            mode = %mode,
+            "session_context: defaulting custom ACP agent to full-auto mode"
+        );
+        config.session_mode = Some(mode);
         Ok(())
     }
 
@@ -611,6 +658,54 @@ mod tests {
         let acp = acp_context(context);
         assert_eq!(acp.config.session_mode.as_deref(), Some("legacy-mode"));
         assert!(acp.session_snapshot.is_none());
+    }
+
+    #[tokio::test]
+    async fn acp_custom_agent_without_session_mode_defaults_to_full_auto() {
+        let repos = setup().await;
+        repos
+            .metadata_repo
+            .upsert(&UpsertAgentMetadataParams {
+                id: "custom-codex-test",
+                icon: None,
+                name: "custom-codex-test",
+                name_i18n: None,
+                description: None,
+                description_i18n: None,
+                backend: Some("codex"),
+                agent_type: "acp",
+                agent_source: "custom",
+                agent_source_info: None,
+                enabled: true,
+                command: Some("/bin/echo"),
+                args: None,
+                env: None,
+                native_skills_dirs: None,
+                behavior_policy: None,
+                yolo_id: Some("full-access"),
+                agent_capabilities: None,
+                auth_methods: None,
+                config_options: None,
+                available_modes: None,
+                available_models: None,
+                available_commands: None,
+                sort_order: 0,
+            })
+            .await
+            .unwrap();
+        let row = row(
+            "acp",
+            serde_json::json!({
+                "agent_id": "custom-codex-test",
+                "backend": "codex",
+                "agent_source": "custom"
+            }),
+            None,
+        );
+
+        let context = repos.builder().build(&row).await.unwrap();
+        let acp = acp_context(context);
+        assert_eq!(acp.config.session_mode.as_deref(), Some("full-access"));
     }
 
     #[tokio::test]

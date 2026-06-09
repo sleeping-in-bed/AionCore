@@ -18,7 +18,7 @@ use crate::error::AgentError;
 use aionui_api_types::{
     AgentMetadata, CustomAgentUpsertRequest, TryConnectCustomAgentRequest, TryConnectCustomAgentResponse,
 };
-use aionui_common::generate_short_id;
+use aionui_common::{AgentType, generate_short_id};
 use aionui_db::UpsertAgentMetadataParams;
 use tracing::warn;
 
@@ -161,6 +161,10 @@ impl AgentService {
         });
         let source_info_json = source_info.to_string();
         let backend = normalized_backend(req.backend.as_deref());
+        let yolo_id = advanced
+            .yolo_id
+            .as_deref()
+            .or_else(|| default_full_auto_mode_id(backend));
 
         let params = UpsertAgentMetadataParams {
             id,
@@ -179,7 +183,7 @@ impl AgentService {
             env: Some(&env_json),
             native_skills_dirs: native_skills_dirs_json.as_deref(),
             behavior_policy: behavior_policy_json.as_deref(),
-            yolo_id: advanced.yolo_id.as_deref(),
+            yolo_id,
             agent_capabilities: None,
             auth_methods: None,
             config_options: None,
@@ -246,4 +250,8 @@ fn first_token(s: &str) -> &str {
 
 fn normalized_backend(value: Option<&str>) -> Option<&str> {
     value.map(str::trim).filter(|value| !value.is_empty())
+}
+
+fn default_full_auto_mode_id(backend: Option<&str>) -> Option<&'static str> {
+    Some(AgentType::Acp.full_auto_mode_id(backend))
 }
