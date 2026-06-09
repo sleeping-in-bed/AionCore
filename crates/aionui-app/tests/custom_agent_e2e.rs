@@ -84,6 +84,7 @@ async fn custom_agent_full_roundtrip() {
         json!({
             "name": "My Claude",
             "command": "sh",
+            "backend": "claude",
             "icon": "🤖",
             "args": ["--acp"],
             "env": []
@@ -95,13 +96,14 @@ async fn custom_agent_full_roundtrip() {
     let id = json["data"]["id"].as_str().expect("id in response").to_owned();
     assert_eq!(json["data"]["name"], "My Claude");
     assert_eq!(json["data"]["agent_source"], "custom");
+    assert_eq!(json["data"]["backend"], "claude");
     assert_eq!(json["data"]["icon"], "🤖");
 
     // List — agent should be visible
     let listed = list_agents(&mut app, &token).await;
     let agents = listed["data"].as_array().expect("array");
     assert!(
-        agents.iter().any(|a| a["id"] == id),
+        agents.iter().any(|a| a["id"] == id && a["backend"] == "claude"),
         "newly created agent should appear in GET /api/agents"
     );
 
@@ -112,6 +114,7 @@ async fn custom_agent_full_roundtrip() {
         json!({
             "name": "My Claude v2",
             "command": "sh",
+            "backend": "codex",
             "icon": "🚀",
             "args": [],
             "env": []
@@ -124,6 +127,7 @@ async fn custom_agent_full_roundtrip() {
     let json = body_json(resp).await;
     assert_eq!(json["data"]["id"], id, "id must survive update");
     assert_eq!(json["data"]["name"], "My Claude v2");
+    assert_eq!(json["data"]["backend"], "codex");
     assert_eq!(json["data"]["icon"], "🚀");
 
     // Toggle disabled

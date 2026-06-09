@@ -160,6 +160,7 @@ impl AgentService {
             "binary_name": first_token(&req.command),
         });
         let source_info_json = source_info.to_string();
+        let backend = normalized_backend(req.backend.as_deref());
 
         let params = UpsertAgentMetadataParams {
             id,
@@ -168,7 +169,7 @@ impl AgentService {
             name_i18n: None,
             description: advanced.description.as_deref(),
             description_i18n: None,
-            backend: None,
+            backend,
             agent_type: "acp",
             agent_source: "custom",
             agent_source_info: Some(&source_info_json),
@@ -241,4 +242,8 @@ async fn probe_or_reject(req: &CustomAgentUpsertRequest, data_dir: &Path) -> Res
 
 fn first_token(s: &str) -> &str {
     s.split_whitespace().next().unwrap_or(s)
+}
+
+fn normalized_backend(value: Option<&str>) -> Option<&str> {
+    value.map(str::trim).filter(|value| !value.is_empty())
 }

@@ -23,6 +23,8 @@ pub struct CustomAgentUpsertRequest {
     pub name: String,
     pub command: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub backend: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub icon: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub args: Vec<String>,
@@ -88,5 +90,16 @@ mod tests {
         assert!(req.args.is_empty());
         assert!(req.env.is_empty());
         assert!(req.advanced.is_none());
+    }
+
+    #[test]
+    fn upsert_request_accepts_backend_hint() {
+        let payload = json!({
+            "name": "Host Codex",
+            "command": "codex-acp",
+            "backend": "codex"
+        });
+        let req: CustomAgentUpsertRequest = serde_json::from_value(payload).unwrap();
+        assert_eq!(req.backend.as_deref(), Some("codex"));
     }
 }
