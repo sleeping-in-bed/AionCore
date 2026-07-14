@@ -3,7 +3,7 @@ use std::process::Stdio;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use aionui_api_types::{CodexRateLimitsSnapshot, CodexRateLimitWindow, CodexStatusResponse};
+use aionui_api_types::{CodexRateLimitWindow, CodexRateLimitsSnapshot, CodexStatusResponse};
 use serde::Serialize;
 use serde_json::Value;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
@@ -109,7 +109,10 @@ impl CodexStatusService {
             .spawn()
             .map_err(|error| format!("spawn codex app-server: {error}"))?;
 
-        let mut stdin = child.stdin.take().ok_or_else(|| "codex app-server stdin unavailable".to_owned())?;
+        let mut stdin = child
+            .stdin
+            .take()
+            .ok_or_else(|| "codex app-server stdin unavailable".to_owned())?;
         let stdout = child
             .stdout
             .take()
@@ -404,7 +407,10 @@ mod tests {
             })
         );
         assert_eq!(
-            response.rate_limits.as_ref().and_then(|limits| limits.secondary.as_ref()),
+            response
+                .rate_limits
+                .as_ref()
+                .and_then(|limits| limits.secondary.as_ref()),
             Some(&CodexRateLimitWindow {
                 used_percent: 73.0,
                 window_duration_mins: 10080,

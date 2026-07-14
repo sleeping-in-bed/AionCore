@@ -2000,17 +2000,22 @@ async fn set_model_returns_confirmed_model_from_active_agent() {
 
 #[tokio::test]
 async fn get_usage_falls_back_to_persisted_acp_runtime_usage_without_active_task() {
-    let acp_session_repo: Arc<dyn IAcpSessionRepository> = Arc::new(StubAcpSessionRepo::with_persisted_state(Some(
-        PersistedSessionState {
+    let acp_session_repo: Arc<dyn IAcpSessionRepository> =
+        Arc::new(StubAcpSessionRepo::with_persisted_state(Some(PersistedSessionState {
             context_usage_json: Some(r#"{"used":1234,"size":200000}"#.to_owned()),
             ..Default::default()
-        },
-    )));
-    let (svc, _broadcaster, _repo, _task_mgr) =
-        make_service_with_resolver_and_acp_session_repo(Arc::new(FixedSkillResolver { names: vec![] }), acp_session_repo);
+        })));
+    let (svc, _broadcaster, _repo, _task_mgr) = make_service_with_resolver_and_acp_session_repo(
+        Arc::new(FixedSkillResolver { names: vec![] }),
+        acp_session_repo,
+    );
     let conv = svc.create("user_1", make_create_req()).await.unwrap();
 
-    let usage = svc.get_usage(&conv.id).await.unwrap().expect("persisted usage should be returned");
+    let usage = svc
+        .get_usage(&conv.id)
+        .await
+        .unwrap()
+        .expect("persisted usage should be returned");
 
     assert_eq!(usage["used"], 1234);
     assert_eq!(usage["size"], 200000);
